@@ -5,13 +5,6 @@ import (
 	"strings"
 )
 
-// CommandAlias 命令别名
-type CommandAlias struct {
-	Name    string
-	Command string
-	Desc    string
-}
-
 // CommandHandler 命令处理器
 type CommandHandler struct {
 	client  *MUDClient
@@ -35,6 +28,10 @@ func NewCommandHandler(client *MUDClient) *CommandHandler {
 	h.RegisterAlias("s", "go south", "向南")
 	h.RegisterAlias("e", "go east", "向东")
 	h.RegisterAlias("w", "go west", "向西")
+	h.RegisterAlias("ne", "go northeast", "向东北")
+	h.RegisterAlias("nw", "go northwest", "向西北")
+	h.RegisterAlias("se", "go southeast", "向东南")
+	h.RegisterAlias("sw", "go southwest", "向西南")
 	h.RegisterAlias("i", "inventory", "背包")
 	h.RegisterAlias("st", "status", "状态")
 	h.RegisterAlias("h", "help", "帮助")
@@ -48,7 +45,7 @@ func (h *CommandHandler) RegisterAlias(alias, command, desc string) {
 }
 
 // ProcessCommand 处理命令
-func (h *CommandHandler) ProcessCommand(input string) string {
+func (h *CommandHandler) ProcessCommand(input string, ui *GameUI) string {
 	input = strings.TrimSpace(input)
 	
 	if input == "" {
@@ -75,16 +72,15 @@ func (h *CommandHandler) ProcessCommand(input string) string {
 	
 	// 处理特殊命令
 	if strings.HasPrefix(input, "/") {
-		return h.processSpecialCommand(input)
+		return h.processSpecialCommand(input, ui)
 	}
 	
-	// 发送游戏命令
-	h.client.Send(input)
-	return input
+	// 处理游戏命令
+	return h.processGameCommand(input, ui)
 }
 
 // processSpecialCommand 处理特殊命令（以/开头）
-func (h *CommandHandler) processSpecialCommand(input string) string {
+func (h *CommandHandler) processSpecialCommand(input string, ui *GameUI) string {
 	parts := strings.Fields(input)
 	cmd := strings.ToLower(parts[0])
 	
@@ -94,7 +90,8 @@ func (h *CommandHandler) processSpecialCommand(input string) string {
 		return "已断开连接"
 		
 	case "/clear":
-		return "\033[2J\033[H" // 清屏
+		ui.Clear()
+		return ""
 		
 	case "/history", "/hist":
 		return h.getHistory()
@@ -103,10 +100,124 @@ func (h *CommandHandler) processSpecialCommand(input string) string {
 		return h.listAliases()
 		
 	case "/help":
-		return h.getHelp()
+		ui.ShowHelp()
+		return ""
+		
+	case "/map":
+		ui.ShowMiniMap()
+		return ""
+		
+	case "/refresh":
+		ui.Refresh()
+		return ""
 		
 	default:
 		return fmt.Sprintf("未知命令：%s", cmd)
+	}
+}
+
+// processGameCommand 处理游戏命令
+func (h *CommandHandler) processGameCommand(input string, ui *GameUI) string {
+	parts := strings.Fields(input)
+	if len(parts) == 0 {
+		return ""
+	}
+	
+	cmd := strings.ToLower(parts[0])
+	
+	switch cmd {
+	case "login":
+		if len(parts) >= 3 {
+			h.client.Login(parts[1], parts[2])
+			return fmt.Sprintf("正在登录：%s", parts[1])
+		}
+		return "用法：login <用户名> <密码>"
+		
+	case "register":
+		if len(parts) >= 3 {
+			h.client.Register(parts[1], parts[2])
+			return fmt.Sprintf("正在注册：%s", parts[1])
+		}
+		return "用法：register <用户名> <密码>"
+		
+	case "look", "l":
+		ui.ShowMiniMap()
+		ui.ShowAreaInfo()
+		h.client.Send("look")
+		return ""
+		
+	case "go":
+		if len(parts) >= 2 {
+			ui.Move(parts[1])
+			return fmt.Sprintf("正在向 %s 移动...", parts[1])
+		}
+		return "用法：go <方向> (n/s/e/w/ne/nw/se/sw)"
+		
+	case "n", "north":
+		ui.Move("north")
+		return "正在向北移动..."
+		
+	case "s", "south":
+		ui.Move("south")
+		return "正在向南移动..."
+		
+	case "e", "east":
+		ui.Move("east")
+		return "正在向东移动..."
+		
+	case "w", "west":
+		ui.Move("west")
+		return "正在向西移动..."
+		
+	case "status", "st":
+		ui.ShowPlayerInfo()
+		h.client.Send("status")
+		return ""
+		
+	case "map":
+		ui.ShowMiniMap()
+		return ""
+		
+	case "info":
+		ui.ShowAreaInfo()
+		return ""
+		
+	case "build":
+		if len(parts) >= 2 {
+			x := ui.GetPlayerX()
+			y := ui.GetPlayerY()
+			h.client.Send(fmt.Sprintf("build %s %d %d", parts[1], x, y))
+			return fmt.Sprintf("正在建造 %s...", parts[1])
+		}
+		return "用法：build <建筑类型>"
+		
+	case "work":
+		h.client.Send("work")
+		return "正在工作..."
+		
+	case "rest":
+		h.client.Send("rest")
+		return "正在休息..."
+		
+	case "say":
+		if len(parts) >= 2 {
+			h.client.Send(fmt.Sprintf("say %s", strings.Join(parts[1:], " ")))
+			return ""
+		}
+		return "用法：say <消息>"
+		
+	case "who":
+		h.client.Send("who")
+		return "获取在线玩家列表..."
+		
+	case "help", "h":
+		ui.ShowHelp()
+		return ""
+		
+	default:
+		// 未知命令，直接发送
+		h.client.Send(input)
+		return fmt.Sprintf("发送命令：%s", input)
 	}
 }
 
@@ -134,36 +245,6 @@ func (h *CommandHandler) listAliases() string {
 		sb.WriteString(fmt.Sprintf("  %-5s -> %s\n", alias, cmd))
 	}
 	return sb.String()
-}
-
-// getHelp 获取帮助
-func (h *CommandHandler) getHelp() string {
-	return `
-╔════════════════════════════════════════════════════════╗
-║                    SLG MUD 帮助                        ║
-╠════════════════════════════════════════════════════════╣
-║  游戏命令：                                             ║
-║    login <用户名> <密码>    登录                        ║
-║    register <用户名> <密码> 注册                        ║
-║    look (l)               查看周围                      ║
-║    go <方向>              移动 (north/south/east/west)  ║
-║    status (st)            查看状态                      ║
-║    inventory (i)          查看背包                      ║
-║    build <建筑>           建造建筑                      ║
-║    work                   工作                          ║
-║    rest                   休息                          ║
-║    say <消息>             说话                          ║
-║    who                    在线玩家                      ║
-║    help                   帮助                          ║
-╠════════════════════════════════════════════════════════╣
-║  特殊命令（以/开头）：                                   ║
-║    /quit, /exit           退出游戏                      ║
-║    /clear                 清屏                          ║
-║    /history               命令历史                      ║
-║    /alias                 别名列表                      ║
-║    /help                  本帮助                        ║
-╚════════════════════════════════════════════════════════╝
-`
 }
 
 // GetPreviousCommand 获取上一条命令

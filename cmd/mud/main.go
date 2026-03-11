@@ -13,7 +13,7 @@ import (
 func main() {
 	fmt.Println("╔════════════════════════════════════════════════════════╗")
 	fmt.Println("║          SLG MUD Client                                ║")
-	fmt.Println("║          Text-Based SLG Game Client                    ║")
+	fmt.Println("║          1024x1024 大世界                              ║")
 	fmt.Println("╚════════════════════════════════════════════════════════╝")
 	fmt.Println()
 
@@ -26,6 +26,7 @@ func main() {
 	// 创建 MUD 客户端
 	client := mud.NewMUDClient(serverAddr)
 	handler := mud.NewCommandHandler(client)
+	ui := mud.NewGameUI(client)
 
 	// 连接服务器
 	fmt.Printf("正在连接到 %s...\n", serverAddr)
@@ -38,16 +39,19 @@ func main() {
 
 	fmt.Println("✅ 连接成功！")
 	fmt.Println()
-	fmt.Println("输入 'help' 查看帮助，'/quit' 退出游戏")
-	fmt.Println()
 
 	// 启动输出处理
-	go handleOutput(client)
+	go handleOutput(client, ui)
+
+	// 显示初始界面
+	ui.Clear()
+	ui.ShowHeader()
+	ui.ShowHelp()
 
 	// 主输入循环
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("> ")
+		fmt.Print("\n> ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Printf("❌ 读取错误：%v\n", err)
@@ -57,7 +61,7 @@ func main() {
 		input = strings.TrimSpace(input)
 		
 		// 处理命令
-		result := handler.ProcessCommand(input)
+		result := handler.ProcessCommand(input, ui)
 		
 		if result != "" {
 			// 特殊命令直接输出
@@ -68,20 +72,20 @@ func main() {
 
 		// 检查是否已断开
 		if !client.IsConnected() {
-			fmt.Println("已断开连接")
+			fmt.Println("\n已断开连接")
 			break
 		}
 	}
 
-	fmt.Println("感谢游玩，再见！")
+	fmt.Println("\n感谢游玩，再见！")
 	time.Sleep(1 * time.Second)
 }
 
 // handleOutput 处理服务器输出
-func handleOutput(client *mud.MUDClient) {
+func handleOutput(client *mud.MUDClient, ui *mud.GameUI) {
 	for line := range client.GetOutputChan() {
 		// 解析并格式化输出
-		formatted := formatOutput(line)
+		formatted := formatOutput(line, ui)
 		if formatted != "" {
 			fmt.Println(formatted)
 		}
@@ -89,7 +93,7 @@ func handleOutput(client *mud.MUDClient) {
 }
 
 // formatOutput 格式化输出
-func formatOutput(line string) string {
+func formatOutput(line string, ui *mud.GameUI) string {
 	// 解析特殊格式
 	if strings.Contains(line, "成功") {
 		return "✅ " + line
@@ -109,6 +113,16 @@ func formatOutput(line string) string {
 	
 	if strings.HasPrefix(line, "资源:") {
 		return "💰 " + line
+	}
+	
+	if strings.HasPrefix(line, "玩家 ID:") {
+		parts := strings.Split(line, ":")
+		if len(parts) > 1 {
+			var id uint64
+			fmt.Sscanf(parts[1], "%d", &id)
+			ui.UpdatePlayer(&mud.PlayerInfo{ID: id})
+		}
+		return "👤 " + line
 	}
 	
 	return line
