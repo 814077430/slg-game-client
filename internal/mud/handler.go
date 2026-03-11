@@ -206,9 +206,9 @@ func (h *CommandHandler) processGameCommand(input string, ui *GameUI) string {
 		}
 		return "用法：say <消息>"
 		
-	case "who":
+	case "who", "players":
 		h.client.Send("who")
-		return "获取在线玩家列表..."
+		return "获取视野内玩家..."
 		
 	case "help", "h":
 		ui.ShowHelp()
