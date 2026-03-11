@@ -18,6 +18,11 @@ const (
 	MaxMsgSize   = 1024 * 1024
 	MagicNumber  = 0x534C
 	ProtocolVer  = 1
+	
+	// 聊天消息 ID
+	MsgID_C2S_ChatRequest      = 1010
+	MsgID_S2C_ChatResponse     = 2010
+	MsgID_S2C_ChatBroadcast    = 2011
 )
 
 // 消息 ID 常量
@@ -237,4 +242,24 @@ func (c *Client) GetUsername() string {
 // IsLoggedIn 检查登录状态
 func (c *Client) IsLoggedIn() bool {
 	return c.isLoggedIn
+}
+
+// ChatRequest 聊天请求
+type ChatRequest struct {
+	Content string `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"`
+	Channel string `protobuf:"bytes,2,opt,name=channel,proto3" json:"channel,omitempty"`
+}
+
+// SendChat 发送聊天消息
+func (c *Client) SendChat(content, channel string) error {
+	if channel == "" {
+		channel = "world" // 默认全服频道
+	}
+	
+	chatReq := &ChatRequest{
+		Content: content,
+		Channel: channel,
+	}
+	
+	return c.Send(MsgID_C2S_ChatRequest, chatReq)
 }

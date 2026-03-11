@@ -4,69 +4,50 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
-// WorldInfo 世界信息
-type WorldInfo struct {
-	Size        int
-	CenterStart int
-	CenterEnd   int
-	CastleStart int
-	CastleEnd   int
-}
-
-// PlayerInfo 玩家信息
-type PlayerInfo struct {
-	ID        uint64
-	Username  string
-	X         int32
-	Y         int32
-	Zone      string
-	Gold      int64
-	Wood      int64
-	Food      int64
-	Stone     int64
-	Level     int32
-}
-
-// TileInfo 地块信息
-type TileInfo struct {
-	X         int32
-	Y         int32
-	TileType  string
-	Zone      string
-	OwnerID   uint64
-	Resource  map[string]int32
-	Passable  bool
-	CityType  string
+// ChatMessage 聊天消息
+type ChatMessage struct {
+	PlayerID  uint64 `json:"player_id"`
+	Username  string `json:"username"`
+	Content   string `json:"content"`
+	Timestamp int64  `json:"timestamp"`
+	Channel   string `json:"channel"` // "world" / "alliance"
 }
 
 // GameUI 游戏界面
 type GameUI struct {
-	client    *MUDClient
-	player    *PlayerInfo
-	world     *WorldInfo
-	visible   []*TileInfo
-	mutex     sync.Mutex
-	width     int
-	height    int
+	player      *PlayerInfo
+	history     []*ChatMessage
+	historyLock sync.RWMutex
+	maxHistory  int
+	width       int
+	height      int
+}
+
+// PlayerInfo 玩家信息
+type PlayerInfo struct {
+	ID       uint64
+	Username string
+	X        int32
+	Y        int32
+	Zone     string
+	Gold     int64
+	Wood     int64
+	Food     int64
+	Stone    int64
+	Level    int32
 }
 
 // NewGameUI 创建游戏界面
-func NewGameUI(client *MUDClient) *GameUI {
+func NewGameUI() *GameUI {
 	return &GameUI{
-		client: client,
-		player: &PlayerInfo{},
-		world: &WorldInfo{
-			Size:        1024,
-			CenterStart: 384,
-			CenterEnd:   640,
-			CastleStart: 480,
-			CastleEnd:   544,
-		},
-		visible: make([]*TileInfo, 0),
-		width:   80,
-		height:  24,
+		player:     &PlayerInfo{},
+		history:    make([]*ChatMessage, 0),
+		maxHistory: 100, // 最多保留 100 条聊天历史
+		width:      80,
+		height:     24,
 	}
 }
 
@@ -84,8 +65,8 @@ func (ui *GameUI) ShowHeader() {
 
 // ShowPlayerInfo 显示玩家信息
 func (ui *GameUI) ShowPlayerInfo() {
-	ui.mutex.Lock()
-	defer ui.mutex.Unlock()
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
 	
 	fmt.Println()
 	fmt.Println("╔════════════════════════════════════════════════════════╗")
@@ -101,6 +82,9 @@ func (ui *GameUI) ShowPlayerInfo() {
 
 // ShowMiniMap 显示小地图（简化版）
 func (ui *GameUI) ShowMiniMap() {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	
 	fmt.Println()
 	fmt.Println("╔════════════════════════════════════════════════════════╗")
 	fmt.Println("║  小地图 (周边 5 格)                                     ║")
@@ -116,12 +100,8 @@ func (ui *GameUI) ShowMiniMap() {
 			if dx == 0 && dy == 0 {
 				fmt.Print("@") // 玩家位置
 			} else {
-				tile := ui.getTile(x, y)
-				if tile != nil {
-					fmt.Print(ui.getTileSymbol(tile))
-				} else {
-					fmt.Print("?")
-				}
+				tile := ui.getTileSymbol(x, y)
+				fmt.Print(tile)
 			}
 			fmt.Print(" ")
 		}
@@ -134,81 +114,34 @@ func (ui *GameUI) ShowMiniMap() {
 }
 
 // getTileSymbol 获取地块符号
-func (ui *GameUI) getTileSymbol(tile *TileInfo) string {
-	if tile.CityType != "" {
+func (ui *GameUI) getTileSymbol(x, y int32) string {
+	// 简单模拟地形
+	zone := ui.GetZoneName(x, y)
+	switch zone {
+	case "皇城":
 		return "#"
-	}
-	
-	switch tile.TileType {
-	case "plain":
+	case "安全区":
 		return "."
-	case "mountain":
-		return "^"
-	case "river":
-		return "~"
-	case "forest":
+	case "雍州", "青州", "扬州", "荆州":
 		return "*"
-	case "hill":
-		return "+"
-	case "desert":
-		return "="
-	case "snow":
-		return "x"
+	case "蛮荒":
+		return "^"
 	default:
-		return "."
-	}
-}
-
-// getTile 获取地块（模拟）
-func (ui *GameUI) getTile(x, y int32) *TileInfo {
-	// 实际应该从服务器获取
-	return &TileInfo{
-		X:        x,
-		Y:        y,
-		TileType: "plain",
-		Zone:     ui.getZoneName(x, y),
-		Passable: true,
-	}
-}
-
-// getZoneName 获取区域名称
-func (ui *GameUI) getZoneName(x, y int32) string {
-	// 边缘绝境
-	if x < 64 || x >= 1024-64 || y < 64 || y >= 1024-64 {
-		return "绝境"
-	}
-	
-	// 中心区域
-	if x >= 384 && x < 640 && y >= 384 && y < 640 {
-		if x >= 480 && x < 544 && y >= 480 && y < 544 {
-			return "皇城"
-		}
-		return "安全区"
-	}
-	
-	// 四大州
-	mid := int32(512)
-	if x < mid && y < mid {
-		return "雍州"
-	} else if x >= mid && y < mid {
-		return "青州"
-	} else if x < mid && y >= mid {
-		return "扬州"
-	} else {
-		return "荆州"
+		return "="
 	}
 }
 
 // ShowAreaInfo 显示区域信息
 func (ui *GameUI) ShowAreaInfo() {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	
 	fmt.Println()
 	fmt.Println("╔════════════════════════════════════════════════════════╗")
 	fmt.Println("║  当前区域信息                                          ║")
-	fmt.Printf("║  区域：%s                                      ║\n", ui.getZoneName(ui.player.X, ui.player.Y))
-	fmt.Printf("║  世界尺寸：%dx%d                                ║\n", ui.world.Size, ui.world.Size)
-	fmt.Printf("║  皇城坐标：(%d,%d)~(%d,%d)                    ║\n",
-		ui.world.CastleStart, ui.world.CastleStart,
-		ui.world.CastleEnd, ui.world.CastleEnd)
+	fmt.Printf("║  区域：%s                                      ║\n", ui.getZoneDetailed(ui.player.X, ui.player.Y))
+	fmt.Printf("║  世界尺寸：1024x1024                                ║\n")
+	fmt.Printf("║  皇城坐标：(480,480)~(544,544)                    ║\n")
 	fmt.Println("╚════════════════════════════════════════════════════════╝")
 }
 
@@ -234,12 +167,19 @@ func (ui *GameUI) ShowHelp() {
 	fmt.Println("║    status (st) 查看状态                                ║")
 	fmt.Println("║    info        区域信息                                ║")
 	fmt.Println("╠════════════════════════════════════════════════════════╣")
+	fmt.Println("║  聊天命令：                                             ║")
+	fmt.Println("║    chat <消息>  发送消息 (默认全服)                     ║")
+	fmt.Println("║    c <消息>     聊天快捷                               ║")
+	fmt.Println("║    cw <消息>    全服聊天                               ║")
+	fmt.Println("║    ca <消息>    联盟聊天                               ║")
+	fmt.Println("║    ch           查看聊天历史                           ║")
+	fmt.Println("║    cc           清空聊天历史                           ║")
+	fmt.Println("╠════════════════════════════════════════════════════════╣")
 	fmt.Println("║  游戏命令：                                             ║")
 	fmt.Println("║    build <建筑>  建造建筑                              ║")
 	fmt.Println("║    work          工作                                  ║")
 	fmt.Println("║    rest          休息                                  ║")
-	fmt.Println("║    say <消息>    说话                                  ║")
-	fmt.Println("║    who           在线玩家                              ║")
+	fmt.Println("║    who           视野内玩家                            ║")
 	fmt.Println("╠════════════════════════════════════════════════════════╣")
 	fmt.Println("║  特殊命令（以/开头）：                                  ║")
 	fmt.Println("║    /quit         退出游戏                              ║")
@@ -250,15 +190,15 @@ func (ui *GameUI) ShowHelp() {
 
 // UpdatePlayer 更新玩家信息
 func (ui *GameUI) UpdatePlayer(info *PlayerInfo) {
-	ui.mutex.Lock()
-	defer ui.mutex.Unlock()
+	ui.historyLock.Lock()
+	defer ui.historyLock.Unlock()
 	ui.player = info
 }
 
 // Move 移动
 func (ui *GameUI) Move(direction string) {
-	ui.mutex.Lock()
-	defer ui.mutex.Unlock()
+	ui.historyLock.Lock()
+	defer ui.historyLock.Unlock()
 	
 	dx, dy := ui.getDirectionDelta(direction)
 	ui.player.X += dx
@@ -268,17 +208,15 @@ func (ui *GameUI) Move(direction string) {
 	if ui.player.X < 0 {
 		ui.player.X = 0
 	}
-	if ui.player.X >= int32(ui.world.Size) {
-		ui.player.X = int32(ui.world.Size) - 1
+	if ui.player.X >= 1024 {
+		ui.player.X = 1023
 	}
 	if ui.player.Y < 0 {
 		ui.player.Y = 0
 	}
-	if ui.player.Y >= int32(ui.world.Size) {
-		ui.player.Y = int32(ui.world.Size) - 1
+	if ui.player.Y >= 1024 {
+		ui.player.Y = 1023
 	}
-	
-	ui.client.Send(fmt.Sprintf("move %d %d", ui.player.X, ui.player.Y))
 }
 
 // getDirectionDelta 获取方向增量
@@ -305,6 +243,158 @@ func (ui *GameUI) getDirectionDelta(dir string) (int32, int32) {
 	}
 }
 
+// GetPlayerX 获取玩家 X 坐标
+func (ui *GameUI) GetPlayerX() int32 {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	return ui.player.X
+}
+
+// GetPlayerY 获取玩家 Y 坐标
+func (ui *GameUI) GetPlayerY() int32 {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	return ui.player.Y
+}
+
+// GetZoneName 获取区域名称
+func (ui *GameUI) GetZoneName(x, y int32) string {
+	// 边缘绝境
+	if x < 64 || x >= 1024-64 || y < 64 || y >= 1024-64 {
+		return "绝境"
+	}
+	
+	// 中心区域
+	if x >= 384 && x < 640 && y >= 384 && y < 640 {
+		if x >= 480 && x < 544 && y >= 480 && y < 544 {
+			return "皇城"
+		}
+		return "安全区"
+	}
+	
+	// 四大州
+	mid := int32(512)
+	if x < mid && y < mid {
+		return "雍州"
+	} else if x >= mid && y < mid {
+		return "青州"
+	} else if x < mid && y >= mid {
+		return "扬州"
+	} else {
+		return "荆州"
+	}
+}
+
+// getZoneDetailed 获取详细区域名称
+func (ui *GameUI) getZoneDetailed(x, y int32) string {
+	// 边缘绝境
+	if x < 64 || x >= 1024-64 || y < 64 || y >= 1024-64 {
+		return "边缘绝境"
+	}
+	
+	// 中心区域
+	if x >= 384 && x < 640 && y >= 384 && y < 640 {
+		if x >= 480 && x < 544 && y >= 480 && y < 544 {
+			return "皇城"
+		}
+		return "中心安全区"
+	}
+	
+	// 蛮荒带
+	barbarianStart := int32(640)
+	barbarianEnd := int32(768)
+	
+	if (x >= barbarianStart && x < barbarianEnd) ||
+	   (x >= 1024-barbarianEnd && x < 1024-barbarianStart) ||
+	   (y >= barbarianStart && y < barbarianEnd) ||
+	   (y >= 1024-barbarianEnd && y < 1024-barbarianStart) {
+		return "蛮荒带"
+	}
+	
+	// 四大州
+	mid := int32(512)
+	if x < mid && y < mid {
+		return "雍州（西北）"
+	} else if x >= mid && y < mid {
+		return "青州（东北）"
+	} else if x < mid && y >= mid {
+		return "扬州（西南）"
+	} else {
+		return "荆州（东南）"
+	}
+}
+
+// AddChatMessage 添加聊天消息
+func (ui *GameUI) AddChatMessage(msg *ChatMessage) {
+	ui.historyLock.Lock()
+	defer ui.historyLock.Unlock()
+	
+	ui.history = append(ui.history, msg)
+	
+	// 限制历史记录数量
+	if len(ui.history) > ui.maxHistory {
+		ui.history = ui.history[1:]
+	}
+}
+
+// GetChatHistory 获取聊天历史
+func (ui *GameUI) GetChatHistory() []*ChatMessage {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	
+	// 返回副本
+	history := make([]*ChatMessage, len(ui.history))
+	copy(history, ui.history)
+	return history
+}
+
+// ClearChatHistory 清空聊天历史
+func (ui *GameUI) ClearChatHistory() {
+	ui.historyLock.Lock()
+	defer ui.historyLock.Unlock()
+	ui.history = make([]*ChatMessage, 0)
+}
+
+// ShowChatMessages 显示最近聊天消息
+func (ui *GameUI) ShowChatMessages(count int) {
+	ui.historyLock.RLock()
+	defer ui.historyLock.RUnlock()
+	
+	if len(ui.history) == 0 {
+		fmt.Println("📭 暂无聊天消息")
+		return
+	}
+	
+	fmt.Println()
+	fmt.Println("╔════════════════════════════════════════════════════════╗")
+	fmt.Println("║                  最近聊天                              ║")
+	fmt.Println("╠════════════════════════════════════════════════════════╣")
+	
+	start := len(ui.history) - count
+	if start < 0 {
+		start = 0
+	}
+	
+	for i := start; i < len(ui.history); i++ {
+		msg := ui.history[i]
+		timeStr := time.UnixMilli(msg.Timestamp).Format("15:04:05")
+		channelIcon := map[string]string{
+			"world":    "🌍",
+			"alliance": "🏰",
+		}[msg.Channel]
+		
+		// 截断过长的消息
+		content := msg.Content
+		if len(content) > 50 {
+			content = content[:47] + "..."
+		}
+		
+		fmt.Printf("║ %s %s [%s]: %s\n", timeStr, channelIcon, msg.Username, content)
+	}
+	
+	fmt.Println("╚════════════════════════════════════════════════════════╝")
+}
+
 // Refresh 刷新界面
 func (ui *GameUI) Refresh() {
 	ui.Clear()
@@ -312,18 +402,5 @@ func (ui *GameUI) Refresh() {
 	ui.ShowPlayerInfo()
 	ui.ShowMiniMap()
 	ui.ShowAreaInfo()
-}
-
-// GetPlayerX 获取玩家 X 坐标
-func (ui *GameUI) GetPlayerX() int32 {
-	ui.mutex.Lock()
-	defer ui.mutex.Unlock()
-	return ui.player.X
-}
-
-// GetPlayerY 获取玩家 Y 坐标
-func (ui *GameUI) GetPlayerY() int32 {
-	ui.mutex.Lock()
-	defer ui.mutex.Unlock()
-	return ui.player.Y
+	ui.ShowChatMessages(5) // 显示最近 5 条聊天
 }

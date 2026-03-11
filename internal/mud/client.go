@@ -131,6 +131,14 @@ func (m *MUDClient) Send(command string) {
 	}
 }
 
+// SendChat 发送聊天消息
+func (m *MUDClient) SendChat(content, channel string) {
+	if channel == "" {
+		channel = "world"
+	}
+	m.Send(fmt.Sprintf("chat %s %s", channel, content))
+}
+
 // Close 关闭连接
 func (m *MUDClient) Close() {
 	m.mutex.Lock()
