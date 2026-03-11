@@ -1,122 +1,140 @@
-# SLG Game Client
+# SLG MUD Client
 
-SLG 游戏客户端 SDK - Go 语言实现
+SLG 游戏 MUD（文字冒险）客户端 - 基于文本的交互式游戏客户端
 
-## 📦 功能特性
+## 🎮 特性
 
-- ✅ TCP 长连接
-- ✅ Protobuf 协议
-- ✅ 自动重连
-- ✅ 消息队列
-- ✅ 并发安全
-- ✅ 心跳检测
+- ✅ 纯文字界面
+- ✅ 命令别名系统
+- ✅ 命令历史记录
+- ✅ 实时输出格式化
+- ✅ 支持 TCP 长连接
+- ✅ 与 slg-game 服务器兼容
 
 ## 🚀 快速开始
 
-### 安装依赖
+### 编译
 
 ```bash
-go mod download
+cd cmd/mud
+go build -o mud-client .
 ```
 
-### 基本使用
+### 运行
 
-```go
-package main
+```bash
+# 连接本地服务器
+./mud-client
 
-import (
-	"log"
-	"slg-game-client/internal/client"
-)
+# 连接远程服务器
+./mud-client server:port
+```
 
-func main() {
-	// 创建客户端
-	c := client.NewClient("localhost:8080")
-	
-	// 连接服务器
-	if err := c.Connect(); err != nil {
-		log.Fatal(err)
-	}
-	defer c.Close()
-	
-	// 登录
-	resp, err := c.Login("username", "password")
-	if err != nil {
-		log.Fatal(err)
-	}
-	
-	log.Printf("登录成功！Player ID: %d", resp.PlayerId)
-	
-	// 移动
-	c.Move(100, 200)
-	
-	// 建造
-	c.Build("farm", 50, 50)
-	
-	// 保持连接
-	select {}
-}
+## 📖 游戏命令
+
+### 基础命令
+
+| 命令 | 别名 | 说明 |
+|------|------|------|
+| `login <用户名> <密码>` | - | 登录 |
+| `register <用户名> <密码>` | - | 注册 |
+| `look` | `l` | 查看周围 |
+| `go <方向>` | `n/s/e/w` | 移动 |
+| `status` | `st` | 查看状态 |
+| `inventory` | `i` | 查看背包 |
+| `build <建筑>` | - | 建造 |
+| `work` | - | 工作 |
+| `rest` | - | 休息 |
+| `say <消息>` | - | 说话 |
+| `who` | - | 在线玩家 |
+| `help` | - | 帮助 |
+
+### 特殊命令（以/开头）
+
+| 命令 | 说明 |
+|------|------|
+| `/quit` | 退出游戏 |
+| `/clear` | 清屏 |
+| `/history` | 命令历史 |
+| `/alias` | 别名列表 |
+| `/help` | 帮助 |
+
+## 🎯 游戏流程
+
+```
+1. 启动客户端
+   $ ./mud-client
+
+2. 注册账号
+   > register player1 password123
+
+3. 登录
+   > login player1 password123
+
+4. 查看周围
+   > look
+
+5. 移动探索
+   > go north
+   > go east
+
+6. 建造建筑
+   > build farm
+
+7. 工作获取资源
+   > work
+
+8. 查看状态
+   > status
 ```
 
 ## 📁 项目结构
 
 ```
 slg-game-client/
-├── cmd/                    # 命令行工具
-│   └── main.go            # 主程序入口
+├── cmd/
+│   ├── main.go           # 原客户端入口
+│   └── mud/
+│       └── main.go       # MUD 客户端入口
 ├── internal/
-│   ├── client/            # 客户端核心
-│   │   ├── client.go      # 客户端实现
-│   │   ├── connection.go  # 连接管理
-│   │   └── handler.go     # 消息处理
-│   ├── proto/             # Protobuf 定义
-│   └── utils/             # 工具函数
+│   ├── client/           # 协议客户端
+│   └── mud/              # MUD 客户端核心
+│       ├── client.go     # MUD 连接
+│       └── handler.go    # 命令处理
 ├── go.mod
-├── go.sum
 └── README.md
 ```
 
-## 🔧 配置
+## 🔧 自定义别名
 
-```json
-{
-  "server": "localhost:8080",
-  "reconnect": true,
-  "reconnectInterval": 5,
-  "heartbeatInterval": 30,
-  "timeout": 10
-}
+在 `handler.go` 中添加：
+
+```go
+h.RegisterAlias("缩写", "完整命令", "描述")
 ```
 
-## 📊 API 文档
+## 📊 输出格式
 
-### 连接管理
+客户端自动格式化服务器输出：
 
-| 方法 | 说明 |
-|------|------|
-| `Connect()` | 连接服务器 |
-| `Close()` | 断开连接 |
-| `IsConnected()` | 检查连接状态 |
+- ✅ 成功消息
+- ❌ 失败消息
+- 🎮 欢迎消息
+- 📍 位置信息
+- 💰 资源信息
 
-### 用户操作
+## 🛠️ 开发
 
-| 方法 | 说明 |
-|------|------|
-| `Login(username, password)` | 登录 |
-| `Register(username, password, email)` | 注册 |
+### 添加新命令
 
-### 游戏操作
+1. 在 `handler.go` 的 `ProcessCommand` 中添加命令解析
+2. 在 `client.go` 中添加对应的发送方法
+3. 更新帮助文档
 
-| 方法 | 说明 |
-|------|------|
-| `Move(x, y)` | 移动 |
-| `Build(type, x, y)` | 建造 |
-| `Attack(targetID)` | 攻击 |
+### 添加新别名
 
-## 🧪 测试
-
-```bash
-go test ./...
+```go
+h.RegisterAlias("x", "examine", "检查物品")
 ```
 
 ## 📝 许可证
