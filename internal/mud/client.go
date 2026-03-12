@@ -131,12 +131,25 @@ func (m *MUDClient) Send(command string) {
 	}
 }
 
-// SendChat 发送聊天消息
+// SendChat 发送聊天消息（简化 Protobuf 格式）
 func (m *MUDClient) SendChat(content, channel string) {
 	if channel == "" {
 		channel = "world"
 	}
-	m.Send(fmt.Sprintf("chat %s %s", channel, content))
+	
+	// 简化格式：channel + " " + content
+	// 服务器会解析为 Protobuf 格式
+	text := fmt.Sprintf("%s %s", channel, content)
+	
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	
+	if m.isConnected && m.writer != nil {
+		// 发送文本，服务器 router.go 会处理
+		m.writer.WriteString(text)
+		m.writer.WriteByte('\n')
+		m.writer.Flush()
+	}
 }
 
 // Close 关闭连接

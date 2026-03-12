@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -14,44 +13,22 @@ import (
 )
 
 const (
-	HeaderSize   = 12
+	HeaderSize   = 8
 	MaxMsgSize   = 1024 * 1024
-	MagicNumber  = 0x534C
-	ProtocolVer  = 1
 	
-	// 聊天消息 ID
-	MsgID_C2S_ChatRequest      = 1010
-	MsgID_S2C_ChatResponse     = 2010
-	MsgID_S2C_ChatBroadcast    = 2011
+	// 消息 ID
+	MsgID_C2S_LoginRequest      = 1001
+	MsgID_C2S_RegisterRequest   = 1002
+	MsgID_C2S_MoveRequest       = 1003
+	MsgID_C2S_BuildRequest      = 1004
+	MsgID_C2S_ChatRequest       = 1010
+	MsgID_S2C_LoginResponse     = 2001
+	MsgID_S2C_RegisterResponse  = 2002
+	MsgID_S2C_MoveResponse      = 2003
+	MsgID_S2C_BuildResponse     = 2004
+	MsgID_S2C_ChatResponse      = 2010
+	MsgID_S2C_ChatBroadcast     = 2011
 )
-
-// 消息 ID 常量
-const (
-	MsgID_C2S_LoginRequest     = 1001
-	MsgID_C2S_RegisterRequest  = 1002
-	MsgID_C2S_MoveRequest      = 1003
-	MsgID_C2S_BuildRequest     = 1004
-	MsgID_S2C_LoginResponse    = 2001
-	MsgID_S2C_RegisterResponse = 2002
-	MsgID_S2C_MoveResponse     = 2003
-	MsgID_S2C_BuildResponse    = 2004
-)
-
-// Client SLG 游戏客户端
-type Client struct {
-	serverAddr  string
-	conn        net.Conn
-	reader      *bufio.Reader
-	writer      *bufio.Writer
-	sendChan    chan *Packet
-	recvChan    chan *Packet
-	closeChan   chan struct{}
-	isClosed    bool
-	mutex       sync.Mutex
-	playerID    uint64
-	username    string
-	isLoggedIn  bool
-}
 
 // Packet 网络包
 type Packet struct {
@@ -62,21 +39,21 @@ type Packet struct {
 // Encode 编码
 func (p *Packet) Encode() []byte {
 	buf := make([]byte, HeaderSize+len(p.Data))
-	binary.BigEndian.PutUint32(buf[0:4], p.MsgID)
-	binary.BigEndian.PutUint32(buf[4:8], uint32(len(p.Data)))
+	binary.LittleEndian.PutUint32(buf[0:4], p.MsgID)
+	binary.LittleEndian.PutUint32(buf[4:8], uint32(len(p.Data)))
 	copy(buf[8:], p.Data)
 	return buf
 }
 
 // Decode 解码
 func Decode(reader io.Reader) (*Packet, error) {
-	header := make([]byte, 8)
+	header := make([]byte, HeaderSize)
 	if _, err := io.ReadFull(reader, header); err != nil {
 		return nil, err
 	}
 
-	msgID := binary.BigEndian.Uint32(header[0:4])
-	msgLen := binary.BigEndian.Uint32(header[4:8])
+	msgID := binary.LittleEndian.Uint32(header[0:4])
+	msgLen := binary.LittleEndian.Uint32(header[4:8])
 
 	if msgLen > MaxMsgSize {
 		return nil, errors.New("message too large")
@@ -93,6 +70,24 @@ func Decode(reader io.Reader) (*Packet, error) {
 	}, nil
 }
 
+// Client 客户端
+type Client struct {
+	serverAddr  string
+	conn        net.Conn
+	reader      *bufio.Reader
+	writer      *bufio.Writer
+	sendChan    chan *Packet
+	recvChan    chan *Packet
+	closeChan   chan struct{}
+	isClosed    bool
+	mutex       sync.Mutex
+	
+	// 游戏状态
+	playerID    uint64
+	username    string
+	isLoggedIn  bool
+}
+
 // NewClient 创建新客户端
 func NewClient(serverAddr string) *Client {
 	return &Client{
@@ -107,7 +102,7 @@ func NewClient(serverAddr string) *Client {
 func (c *Client) Connect() error {
 	conn, err := net.DialTimeout("tcp", c.serverAddr, 10*time.Second)
 	if err != nil {
-		return fmt.Errorf("connection failed: %v", err)
+		return err
 	}
 
 	c.conn = conn
@@ -170,7 +165,7 @@ func (c *Client) writePacket(packet *Packet) error {
 	return c.writer.Flush()
 }
 
-// Send 发送消息
+// Send 发送消息（Protobuf）
 func (c *Client) Send(msgID uint32, msg proto.Message) error {
 	data, err := proto.Marshal(msg)
 	if err != nil {
@@ -253,7 +248,7 @@ type ChatRequest struct {
 // SendChat 发送聊天消息
 func (c *Client) SendChat(content, channel string) error {
 	if channel == "" {
-		channel = "world" // 默认全服频道
+		channel = "world"
 	}
 	
 	chatReq := &ChatRequest{
